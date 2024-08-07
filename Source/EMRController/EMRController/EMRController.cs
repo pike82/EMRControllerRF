@@ -8,6 +8,8 @@ using UnityEngine;
 using EMRController.Config;
 using EMRController.Utils;
 using System.Reflection;
+using RealFuels; // Pike change
+
 
 namespace EMRController
 {
@@ -24,7 +26,7 @@ namespace EMRController
 
 		private MixtureConfigNodeProcessor processor;
 
-		private MixtureConfigNodePair CurrentNodePair {
+        private MixtureConfigNodePair CurrentNodePair {
 			get {
 				if (processor == null) {
 					DeserializeNodes();
@@ -42,7 +44,7 @@ namespace EMRController
 		public override void OnLoad(ConfigNode node)
 		{
 			EMRUtils.Log("OnLoad called");
-			if (GameSceneFilter.AnyInitializing.IsLoaded()) {
+            if (GameSceneFilter.AnyInitializing.IsLoaded()) {
 				EMRUtils.Log("Loading");
 				LoadMixtureConfigNodes(node);
 				EMRUtils.Log("Loaded");
@@ -54,8 +56,8 @@ namespace EMRController
 		{
 			processor = new MixtureConfigNodeProcessor(node);
 			mixtureConfigNodesSerialized = processor.Serialized;
-			//EMRUtils.Log("Serialized ratios");
-		}
+            EMRUtils.Log("Serialized ratios");
+        }
 		#endregion
 
 		#region In Flight Controls
@@ -63,14 +65,16 @@ namespace EMRController
 		public bool emrInClosedLoop;
 
 		[KSPEvent(guiActive = true, guiActiveEditor = false)]
-		public void ChangeEMRMode()
+
+
+        public void ChangeEMRMode()
 		{
 			if (!CurrentNodePair.Disabled) {
 				emrInClosedLoop = !emrInClosedLoop;
 				UpdateInFlightEMRParams();
-				InFlightUIChanged(null, null);
-			}
-		}
+                InFlightUIChanged(null, null);
+            }
+        }
 
 		[KSPAction("Change EMR Mode")]
 		public void ChangeEMRModeAction(KSPActionParam param)
@@ -97,8 +101,7 @@ namespace EMRController
 
 		private void UpdateInFlightEMRParams()
 		{
-
-			if (CurrentNodePair.Disabled) {
+             if (CurrentNodePair.Disabled) {
 				return;
 			}
 
@@ -122,15 +125,14 @@ namespace EMRController
 				closedLoopEMRText = MathUtils.RoundSigFigs(bestEMR).ToString() + ":1" + bestEMRSuffix;
 			}
 
-			//EMRUtils.Log("Updating In Flight EMR Params");
-			Fields["currentEMR"].guiActive = !emrInClosedLoop;
+            Fields["currentEMR"].guiActive = !emrInClosedLoop;
 			Fields["closedLoopEMRText"].guiActive = emrInClosedLoop;
 
-			UI_FloatEdit currentEMREditor = (UI_FloatEdit)Fields["currentEMR"].uiControlFlight;
+
+            UI_FloatEdit currentEMREditor = (UI_FloatEdit)Fields["currentEMR"].uiControlFlight;
 			currentEMREditor.minValue = CurrentNodePair.Min.ratio;
 			currentEMREditor.maxValue = CurrentNodePair.Max.ratio;
-			//EMRUtils.Log("Done Updating In Flight EMR Params");
-		}
+        }
 
 		private bool inFlightCallbacksBound = false;
 		private void BindInFlightCallbacks()
@@ -143,18 +145,17 @@ namespace EMRController
 				}
 				inFlightCallbacksBound = true;
 			}
-			//EMRUtils.Log("Done Binding In Flight Callbacks");
-		}
+            //EMRUtils.Log("Done Binding In Flight Callbacks");
+            UpdateEnginePropUsage(); //Pike change, added here so usage is updated
+        }
 
 		private float lastEMR = -1;
-		private void InFlightUIChanged(BaseField baseField, object obj)
+		private void InFlightUIChanged(BaseField baseField, object obj) // Pike note. this updates everytick
 		{
 			if (CurrentNodePair.Disabled) {
 				return;
 			}
-
-			UpdateEnginePropUsage();
-			currentReserveText = BuildInFlightFuelReserveText();
+            currentReserveText = BuildInFlightFuelReserveText();
 			//EMRUtils.Log("Setting reserve text for EMR ", currentEMR, ":1 to: ", currentReserveText);
 
 			//only going to do all this if emr actually changed
@@ -163,14 +164,13 @@ namespace EMRController
 			}
 			lastEMR = currentEMR;
 			//EMRUtils.Log("In Flight UI Changed");
-			UpdateEngineFloatCurve();
-			UpdateInFlightIspAndThrustDisplays();
+			UpdateEngineFloatCurve();//Pike change, this needs to be here to ensure the isp and thrust are correct, but does not updte the Mixture Ratio
+            UpdateInFlightIspAndThrustDisplays();
 		}
 
 		private void UpdateInFlightIspAndThrustDisplays()
 		{
-			//EMRUtils.Log("Updating Displays");
-			currentEMRText = BuildIspAndThrustString(GenerateMixtureConfigNodeForRatio(currentEMR));
+            currentEMRText = BuildIspAndThrustString(GenerateMixtureConfigNodeForRatio(currentEMR));
 		}
 
 		private void UpdateEngineFloatCurve()
@@ -186,26 +186,37 @@ namespace EMRController
 			float ratioPercentage = currentRatioDiff / fullRatioDiff;
 
 			MixtureConfigNode current = GenerateMixtureConfigNodeForRatio(currentEMR);
-			UpdateThrust(current.maxThrust, current.minThrust);
-			FloatCurve newCurve = FloatCurveTransformer.GenerateForPercentage(CurrentNodePair.Min.atmosphereCurve, CurrentNodePair.Max.atmosphereCurve, ratioPercentage);
-			engineModule.atmosphereCurve = newCurve;
-
+            FloatCurve newCurve = FloatCurveTransformer.GenerateForPercentage(CurrentNodePair.Min.atmosphereCurve, CurrentNodePair.Max.atmosphereCurve, ratioPercentage); //Pike this produces a new ISP curve for the atmosphere
+            UpdateThrust(current.maxThrust, current.minThrust, newCurve); //Pike change, need to push ISP curve to RealFuels
+            engineModule.atmosphereCurve = newCurve;//Pike change, add the atmosphere curve to be loaded int. To be tested without this to see if it  works
 			engineModule.maxFuelFlow = current.maxThrust / (newCurve.Evaluate(0.0f) * engineModule.g);
 
-			//EMRUtils.Log("Setting max thrust to ", current.maxThrust);
-			//EMRUtils.Log("Fuel flow set to ", engineModule.maxFuelFlow);
-		}
+            //EMRUtils.Log("Setting max thrust to ", current.maxThrust);
+            //EMRUtils.Log("Fuel flow set to ", engineModule.maxFuelFlow);
+        }
 
-		private void UpdateEnginePropUsage()
+        private void UpdateEnginePropUsage()  //Pike change,  Updates the propellant ratios in Real Fuels (used for mass flow rate) but not the MR
 		{
-			Dictionary<int, float> ratios = GetRatiosForEMR(propellantResources, currentEMR);
 
-			foreach (Propellant prop in engineModule.propellants) {
-				if (ratios.ContainsKey(prop.id)) {
+			float effectiveSpoolUpTimeBase = engineModuleRF.effectiveSpoolUpTime; //Pike change, attempt to stop engine re-igniting
+            Dictionary<int, float> ratios = GetRatiosForEMR(propellantResources, currentEMR);
+            foreach (Propellant prop in engineModule.propellants) {
+                if (ratios.ContainsKey(prop.id)) {
 					prop.ratio = ratios[prop.id];
-				}
-			}
-		}
+                    engineModuleRF.propellants[0].ratio = 1f - prop.ratio;//Pike change, added 1f instead of 1 to force float
+					engineModuleRF.propellants[1].ratio = prop.ratio;//Pike change [1] is always the oxidizer
+					if (engineModuleRF.EngineIgnited) //Pike change, attempt to stop engine re-igniting
+                    {
+						engineModuleRF.effectiveSpoolUpTime = 0f;
+
+                    }
+                    engineModuleRF.OnEngineConfigurationChanged();//Pike change, this seems to re-start ignition but is required for MR updates.TODO: Need to work out how to stop it re-igniting the engine
+                    EMRUtils.MyDebugLog("OnEngineConfigurationChanged inside PropUsage and Spool"); //Pike change
+					engineModuleRF.effectiveSpoolUpTime = effectiveSpoolUpTimeBase; //Pike change, attempt to stop engine re-igniting
+
+                }
+            }
+        }
 
 		private string BuildInFlightFuelReserveText()
 		{
@@ -278,7 +289,7 @@ namespace EMRController
 				//DELETE ME
 				EMRUtils.Log("I don't know how, but part is null");
 			}
-			part.GetConnectedResourceTotals(propResources.Oxidizer.Id, out amount, out maxAmount);
+			part.GetConnectedResourceTotals(propResources.Oxidizer.Id, out amount, out maxAmount); // Pike need to look into this to see if can be used to change ratios
 
 			double remainingOxidizer = amount;
 
@@ -346,16 +357,18 @@ namespace EMRController
 
 
 		ModuleEngines engineModule = null;
-		public override void OnStart(StartState state)
+        ModuleEnginesRF engineModuleRF = null; //Pike change
+        public override void OnStart(StartState state)
 		{
 			base.OnStart(state);
 			if (engineModule == null) {
 				engineModule = part.FindModuleImplementing<ModuleEngines>();
-			}
+                engineModuleRF = part.FindModuleImplementing<ModuleEnginesRF>(); //Pike change 
+            }
 
-			if (engineModule == null) {
+            if (engineModule == null) {
 				EMRUtils.Log("ERROR! Could not find ModuleEngines");
-			}
+            }
 
 			if (propellantResources == null) {
 				propellantResources = new PropellantResources(engineModule);
@@ -383,9 +396,9 @@ namespace EMRController
 			if (HighLogic.LoadedSceneIsFlight) {
 				InFlightUIChanged(null, null);
 			}
-		}
+        }
 
-		private void ToggleControlsBasedOnConfigs()
+        private void ToggleControlsBasedOnConfigs()
 		{
 			EMRUtils.Log("Toggling Controls based on configs");
 			if (CurrentNodePair.Disabled) {
@@ -412,12 +425,11 @@ namespace EMRController
 				if (propellantResources == null) {
 					propellantResources = new PropellantResources(engineModule);
 				}
-
 				SetNewRatios(propellantResources, startingEMR, finalEMR, emrSplitPercentage);
-			}
-		}
+            }
+        }
 
-		private void SetNewRatios(PropellantResources propellantResources, float startingEMR, float finalEMR, float emrSplitPercentage)
+        private void SetNewRatios(PropellantResources propellantResources, float startingEMR, float finalEMR, float emrSplitPercentage) //Pike this deteremine the optimalratio
 		{
 			Dictionary<int, float> startRatios = GetRatiosForEMR(propellantResources, startingEMR);
 			Dictionary<int, float> endRatios = GetRatiosForEMR(propellantResources, finalEMR);
@@ -440,30 +452,24 @@ namespace EMRController
 					//EMRUtils.Log("Adjusting fuel capacity to account for boiloff");
 					prop.ratio = prop.ratio * ((100 + fuelReservePercentage) / 100);
 				}
-			}
-		}
+			} 
+        }
 
-		Dictionary<int, float> GetRatiosForEMR(PropellantResources propellantResources, float EMR)
+        Dictionary<int, float> GetRatiosForEMR(PropellantResources propellantResources, float EMR)
 		{
 			// right now, the ratio is a volume ratio, so we need to convert that to a mass ratio
+            // EMR = oxidizer mass flow rate
+            // 1 = fuel mass flow rate
 
-			// EMR = oxidizer mass flow rate
-			// 1 = fuel mass flow rate
+            var oxden = propellantResources.Oxidizer.Density; //Pike change
+			var fden = propellantResources.Fuels[0].Density;//Pike change and assumes only one fuel or any further are insignificant
+            
 
-			// let's sum up all the mass flows for our fuels
-			var fuelMassFlow = propellantResources.Fuels.Sum(fuel => fuel.PropellantMassFlow);
-			//EMRUtils.Log("Fuel mass flow: ", fuelMassFlow);
+			var oxidizerRatio = ((EMR * fden)/(oxden+(EMR*fden))); // Pike Chnage, previously call on propellant resource and used mass flow rate but the ratio result was incorrect (despite inthoery being ale to use two fuels). Cal Re-done to base on density and MER only.
+            EMRUtils.MyDebugLog("Oxidizer ratio mod: " + oxidizerRatio); //Pike change
 
-			// oxidizer mass flow will be that times the EMR
-			var oxidizerMassFlow = fuelMassFlow * EMR;
-			//EMRUtils.Log("Oxidier mass flow: ", oxidizerMassFlow);
-
-			// dividing that by density should give us the ratios tha we want
-			var oxidierRatio = oxidizerMassFlow / propellantResources.Oxidizer.Density;
-			//EMRUtils.Log("Oxidier ratio: ", oxidierRatio);
-
-			Dictionary<int, float> ratios = new Dictionary<int, float>();
-			ratios.Add(propellantResources.Oxidizer.Id, oxidierRatio);
+            Dictionary<int, float> ratios = new Dictionary<int, float>();
+			ratios.Add(propellantResources.Oxidizer.Id, oxidizerRatio);
 			return ratios;
 		}
 
@@ -480,15 +486,15 @@ namespace EMRController
 			//EMRUtils.Log("Bound Callbacks");
 		}
 
-		private void UIChanged(BaseField baseField, object obj)
+		private void UIChanged(BaseField baseField, object obj) // Pike Not sure how often this is updated as could not get the debug to show when this is run
 		{
 			UpdateIspAndThrustDisplay();
 			SetNeededFuel();
 			UpdateAllParts();
-		}
+        }
 
-		private void UpdateAllParts()
-		{
+		private void UpdateAllParts() // Pike Not sure how often this is updated as never called on debug menu
+        {
 			List<Part> parts;
 			if (HighLogic.LoadedSceneIsEditor && EditorLogic.fetch.ship != null)
 				parts = EditorLogic.fetch.ship.parts;
@@ -497,7 +503,8 @@ namespace EMRController
 			else parts = new List<Part>();
 			for (int i = parts.Count - 1; i >= 0; --i)
 				parts[i].SendMessage("UpdateUsedBy", SendMessageOptions.DontRequireReceiver);
-		}
+
+        }
 
 		private void UpdateIspAndThrustDisplay()
 		{
@@ -556,7 +563,7 @@ namespace EMRController
 			if (finalEMR < CurrentNodePair.Min.ratio || finalEMR > CurrentNodePair.Max.ratio) {
 				finalEMR = CurrentNodePair.Min.ratio;
 			}
-		}
+        }
 
 		private void SetActionsAndGui()
 		{
@@ -579,14 +586,14 @@ namespace EMRController
 		}
 		#endregion
 
-		public void UpdateUsedBy()
-		{
+		public void UpdateUsedBy() // Pike Not sure how often this is updated as linked to update all parts
+        {
 			//EMRUtils.Log("Update Used By Called");
 			OnStart(StartState.Editor);
 		}
 
 		PartModule mecModule = null;
-		private void DetectConfig()
+		private void DetectConfig() //Pike only updated on start
 		{
 			currentConfigName = "";
 			if (mecModule == null) {
@@ -610,30 +617,38 @@ namespace EMRController
 		float oldMinThrust = 1;
 
 		private static bool isUpdatingThrust = false;
-		private void UpdateThrust(float maxThrust, float minThrust)
+		private void UpdateThrust(float maxThrust, float minThrust, FloatCurve newISPCurv) //Pike change, updated each tick through float curve
 		{
-			//EMRUtils.Log("Setting min/max: ", minThrust,"/", maxThrust);
-			engineModule.maxThrust = maxThrust;
-			engineModule.minThrust = minThrust;
+            //EMRUtils.Log("Setting min/max: ", minThrust,"/", maxThrust);
+            engineModule.maxThrust = maxThrust; 
+            engineModule.minThrust = minThrust; 
+            //engineModule.atmosphereCurve = newISPCurv;//Pike Change, test removing this
+            UpdateEnginePropUsage();//Pike Change to update usage if the thrust is updated
 
-			if (mecModule != null) {
+            if (mecModule != null) {
 
 				if (maxThrust == oldMaxThrust && minThrust == oldMinThrust) {
 					return;
 				}
 				oldMinThrust = minThrust;
 				oldMaxThrust = maxThrust;
+                //SetNeededFuel(); // Pike change didn't work.
+                
 
-				// This is doing the same thing that calling ChangeThrust does for setting the maxThrust, but there's no method there to do that
-				List<ConfigNode> mecModuleConfigNodes = (List<ConfigNode>)mecModule.GetType().GetField("configs").GetValue(mecModule);
+                // This is doing the same thing that calling ChangeThrust does for setting the maxThrust, but there's no method there to do that
+                List<ConfigNode> mecModuleConfigNodes = (List<ConfigNode>)mecModule.GetType().GetField("configs").GetValue(mecModule);
 				if (mecModuleConfigNodes != null) {
 					foreach (ConfigNode c in mecModuleConfigNodes) {
 						c.SetValue("minThrust", minThrust.ToString());
-					}
-				}
-
-				// I'm still calling ChangeThrust with the max thrust, since it calls SetConfiguration
-				if (ModularEnginesChangeThrust == null) {
+                        c.RemoveNode("atmosphereCurve");//Pike change it appears modifying the ConfigNode is not required as it can be direclty influenced by the engine module.
+                        ConfigNode curve = new ConfigNode("atmosphereCurve");//Pike change this is absolutely needed to ensure the ISP is updated
+                        FloatCurve newAtmoCurve = newISPCurv;//Pike change
+                        newAtmoCurve.Save(curve);//Pike change
+                        c.AddNode(curve);//Pike change
+                    }
+                }
+                        // I'm still calling ChangeThrust with the max thrust, since it calls SetConfiguration
+                        if (ModularEnginesChangeThrust == null) {
 					ModularEnginesChangeThrust = (Action<float>)Delegate.CreateDelegate(typeof(Action<float>), mecModule, "ChangeThrust");
 				}
 
@@ -647,8 +662,8 @@ namespace EMRController
 						}
 					}
 				}
-			}
-		}
+            }
+        }
 
 		private int updateInterval = 20;
 		private int currentUpdateCount = 0;
@@ -674,10 +689,10 @@ namespace EMRController
 			}
 			else {
 				UpdateInFlightEMRParams();
-			}
+            }
 
 			Events["ChangeEMRMode"].guiName = text;
 			InFlightUIChanged(null, null);
-		}
-	}
+        }
+    }
 }
