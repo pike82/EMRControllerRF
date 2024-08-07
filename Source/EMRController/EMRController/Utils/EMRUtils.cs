@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using Debug = UnityEngine.Debug;
 
 namespace EMRController.Utils
 {
@@ -9,7 +10,8 @@ namespace EMRController.Utils
 	{
 		private const string logName = "EMR";
 		private static bool enabled = false;
-		public static void Log(params object[] message)
+        private static readonly string DebugLogModName = "EMRController";
+        public static void Log(params object[] message)
 		{
 			Log(Array.ConvertAll(message, item => item.ToString()));
 		}
@@ -26,5 +28,9 @@ namespace EMRController.Utils
 				UnityEngine.Debug.Log(builder.ToStringAndRelease());
 			}
 		}
-	}
+        public static void MyDebugLog(object message) //Pike change
+        {
+            Debug.Log(DebugLogModName + ": " + " " + message);
+        }
+    }
 }
